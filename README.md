@@ -2,7 +2,7 @@
 
 Аналитический моушн-дизайн ролик (2:35, 1920×1080, 60 к/с) с собственным саундтреком о мире «Магической битвы» (呪術廻戦).
 
-**Видео:** [`out/jjk_hierarchy_power_potential.mp4`](out/jjk_hierarchy_power_potential.mp4)
+**Видео:** [`out/jjk_hierarchy_power_potential.mp4`](out/jjk_hierarchy_power_potential.mp4) (1080p60, 51 МБ) · лёгкое превью [`out/jjk_preview_30fps.mp4`](out/jjk_preview_30fps.mp4) (1080p30, 29 МБ)
 
 > ⚠ Спойлеры до финала манги (гл. 271). Оценки силы и потенциала — авторский анализ, а не официальные данные.
 
