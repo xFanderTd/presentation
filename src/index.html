@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JJK — иерархия, сила, потенциал</title>
+  <link rel="stylesheet" href="fonts/fonts.css">
+  <style>
+    html, body { margin: 0; background: #000; overflow: hidden; }
+    #stage { display: block; width: 1920px; height: 1080px; }
+    body.preview { display: grid; place-items: center; height: 100vh; }
+    body.preview #stage { width: min(100vw, calc((100vh - 48px) * 16 / 9)); height: auto; aspect-ratio: 16 / 9; cursor: pointer; }
+    #ui { display: none; }
+    body.preview #ui { display: block; position: fixed; left: 0; right: 0; bottom: 0; padding: 10px 16px 14px; font: 12px/1.2 "JetBrains Mono", monospace; color: #8e8a9c; }
+    #bar { height: 6px; background: #1d1a22; cursor: pointer; border-radius: 3px; margin-bottom: 6px; }
+    #fill { height: 100%; width: 0; background: #ff2e4d; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <canvas id="stage" width="1920" height="1080"></canvas>
+  <div id="ui"><div id="bar"><div id="fill"></div></div><div id="tc"></div></div>
+  <script src="timeline.js"></script>
+  <script src="lib.js"></script>
+  <script src="scenes.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
