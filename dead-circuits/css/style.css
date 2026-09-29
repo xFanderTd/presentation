@@ -1,0 +1,36 @@
+/* DEAD CIRCUITS — page shell. Game UI is sized in game pixels via --s (stage px per game px). */
+:root {
+  --s: 2;
+  --ink: #05040a;
+  --bg: #07060d;
+  --panel: #120f22;
+  --line: #2b2a45;
+  --text: #e9e6ff;
+  --dim: #8d8fb8;
+  --cyan: #27f3ff;
+  --magenta: #ff2a8a;
+  --yellow: #ffe14d;
+  --brutality: #ff3d4f;
+  --tactics: #b46cff;
+  --survival: #4dff7a;
+  --cells: #35c8ff;
+  --gold: #ffc23d;
+  --font-pixel: 'Pixelify Sans', 'Press Start 2P', ui-monospace, 'Courier New', monospace;
+  --font-display: 'Press Start 2P', 'Pixelify Sans', ui-monospace, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); overflow: hidden; }
+body { font-family: var(--font-pixel); -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none; }
+#app { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--bg); }
+#stage { position: relative; width: 960px; height: 540px; overflow: hidden; background: #000; }
+#game { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
+#stage::after { /* scanlines */
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 5;
+  background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0, rgba(0,0,0,0) calc(var(--s) * 1px), rgba(0,0,0,0.13) calc(var(--s) * 1px), rgba(0,0,0,0.13) calc(var(--s) * 2px));
+  mix-blend-mode: multiply;
+}
+#hud, #ui, #touch { position: absolute; inset: 0; pointer-events: none; }
+#hud { z-index: 2; }
+#ui { z-index: 3; }
+#touch { z-index: 4; }
+[hidden] { display: none !important; }
