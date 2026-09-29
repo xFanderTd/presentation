@@ -227,6 +227,7 @@
       if (G.hud && G.hud.init) G.hud.init();
       if (G.touch && G.touch.init) G.touch.init();
       window.addEventListener('resize', () => this.resize());
+      document.addEventListener('visibilitychange', () => { if (document.hidden && this.state === 'play' && !this.paused) this.togglePause(true); });
       this.resize();
       const unlockAudio = () => { if (G.audio) G.audio.init(); };
       window.addEventListener('pointerdown', unlockAudio, { capture: true });

@@ -94,16 +94,16 @@
     // ------------------------------------------------------------ damage
     takeDamage(amount, info = {}) {
       if (this.dead || this.dying || this.state === 'dead') return 0;
-      if (G.debug.god) amount = 0;
+      if (G.debug.god) return 0;
       if (this.invuln > 0 || (this.state === 'roll' && this.rollT < ROLL_IFRAMES) || this.state === 'ledge') return 0;
       if (this.act && this.act.block) {
         amount = this.act.block(amount, info, G.world);
         if (amount <= 0) return 0;
       }
       for (const m of this.mutations) if (m.onIncoming) amount = m.onIncoming(this, amount, info);
-      if (amount <= 0 && !G.debug.god) return 0;
-      const dealt = super.takeDamage(Math.max(G.debug.god ? 0 : 1, amount), Object.assign({}, info, { stun: 0, kb: (info.kb || 60) * 0.8, kbUp: info.kbUp || 90 }));
-      if (!dealt && !G.debug.god) return 0;
+      if (amount <= 0) return 0;
+      const dealt = super.takeDamage(amount, Object.assign({}, info, { stun: 0, kb: (info.kb || 60) * 0.8, kbUp: info.kbUp || 90 }));
+      if (!dealt) return 0;
       this.recoverable = Math.min(this.maxHp - this.hp, this.recoverable + dealt * 0.6);
       this.recoverT = 0;
       this.invuln = 0.6; this.hurtInvuln = true;
