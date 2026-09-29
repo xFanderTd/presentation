@@ -1449,7 +1449,7 @@
     }
     eyePos() { return [this.cx + this.facing * 5, this.y + 1]; }
   }
-  G.defineEnemy('rat', RatBot, { displayName: 'Крысобот', biomes: ['scrap', 'slums'], weight: { scrap: 1.6, slums: 0.8 } });
+  G.defineEnemy('rat', RatBot, { displayName: 'Крысобот', biomes: ['scrap', 'slums'], weight: { scrap: 1.0, slums: 0.5 } });
 
   // ---------------------------------------------------------------- «Панк» punk (knife double-slash + backstep)
   const PUNK = { main: '#3f2160', light: '#9a64e0', dark: '#1f0f32', leg: '#262640', legD: '#15152a', skin: '#e0a0b0', mask: '#1b1426', hawk: '#ff2a8a', hawkL: '#ffb8e0', trim: '#27f3ff', blade: '#c8feff', bladeE: '#27f3ff', visor: '#27f3ff', rim: '#ff4dab', dim: '#9a1a60' };
@@ -2329,9 +2329,9 @@
           if (!this.aggro) { this.setState('idle'); break; }
           this.chase(dt, this.speed, 18);
           if (this.cooldown <= 0 && dx < 30 * this.S && Math.abs(p.bottom - this.bottom) < 20) { this.facePlayer(); this.setState('wind'); this.telegraph(0.5); }
-          else if (this.tpCd <= 0 && this.distToPlayer() < 200 && this.onScreen(-10) && p.onGround) {
+          else if (this.tpCd <= 0 && (dx > 34 || this.wantTp) && this.distToPlayer() < 200 && this.onScreen(-10) && p.onGround) {
             const s = this.findSpot();
-            if (s) { this.dest = s; this.setState('vanish'); snd('glitch', { vol: 0.6 }); }
+            if (s) { this.dest = s; this.wantTp = false; this.setState('vanish'); snd('glitch', { vol: 0.6 }); }
             else this.tpCd = 0.8;
           }
           break;
@@ -2362,7 +2362,10 @@
           break;
         case 'rec':
           this.vx = G.approach(this.vx, 0, 700 * dt);
-          if (this.stateT >= 0.8) { this.cooldown = 0.9; this.tpCd = G.rand.float(1.8, 2.8); this.setState('chase'); }
+          if (this.stateT >= 0.8) {
+            this.cooldown = 0.9; this.wantTp = G.rand.chance(0.5);
+            this.tpCd = this.wantTp ? 0.25 : G.rand.float(1.8, 2.8); this.setState('chase');
+          }
           break;
       }
     }

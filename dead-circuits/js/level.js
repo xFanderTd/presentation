@@ -1145,6 +1145,11 @@
       glow(5 * TS + 25, 9 * TS + 10, 50, P.lamp, 0.5, { fl: 2, bake: 0.5, br: 80, tube: lv.decor[lv.decor.length - 1] });
       for (const bx of [4, 20, 36]) { const it = add('beacon', bx * TS + 3, 2 * TS + 1, 10, 8, {}); anim('beacon', it.x + 5, it.y + 3, 1, 1, { c: P.lamp }); }
       addCables(R, 3);
+      // lower wall: control panels and warnings under the viewport
+      for (const sx of [9, 34]) { const it = add('screen', sx * TS + 2, 13 * TS + 2, 28, 20, { c: P.lamp2 }); anim('screen', it.x + 3, it.y + 3, 22, 13, { c: P.lamp2 }); glow(it.x + 14, it.y + 10, 34, P.lamp2, 0.35, { fl: 1, bake: 0.35, br: 60 }); }
+      for (const hx of [15, 27]) add('hazard', hx * TS, 13 * TS + 2, 48, 24, {});
+      const rs = add('neon', 20 * TS + 6, 13 * TS + 4, G.font.width('REACTOR', 1) + 10, 15, { text: 'REACTOR', scale: 1, c: P.lamp2, box: true });
+      glow(rs.x + rs.w / 2, rs.y + 7, 30, P.lamp2, 0.3, { fl: 2, bake: 0.3, br: 60, tube: rs });
     }
 
     const setWallVar = (R, v) => {

@@ -1901,7 +1901,7 @@
   G.defineItem({
     id: 'flamer', name: 'Огнемёт', kind: 'ranged', stat: 'brutality', drop: 0.8, blueprint: true, unlockCost: 40,
     desc: 'Удерживайте, чтобы поливать огнём короткий конус. Поджигает; цели вплотную получают критический урон. Перегревается.',
-    action: ChannelAction, tickRate: 0.1, maxChannel: 3, cooldown: 1.2, moveMul: 0.3, trail: PAL.orange, twoHand: true,
+    action: ChannelAction, tickRate: 0.09, maxChannel: 3, cooldown: 1.2, moveMul: 0.3, trail: PAL.orange, twoHand: true,
     heatCd: (t) => Math.min(1.2, 0.25 + t * 0.32),
     channelTick(p, inst, world, act) {
       const x0 = p.cx + p.facing * 12, y0 = p.y + 9;

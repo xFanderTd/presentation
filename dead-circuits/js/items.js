@@ -440,7 +440,7 @@
       G.px.rect(ctx, x + 10, y + 13, 2, 28, trim); // gold seam
       G.px.rect(ctx, x + 3, y + 41, 16, 1, trim);
       // arms holding a data-tablet
-      G.px.rect(ctx, x + 11 + f * 3, y + 22, 5 * f > 0 ? 6 : 6, 3, robeL);
+      G.px.rect(ctx, x + (f > 0 ? 11 : 5), y + 22, 6, 3, robeL);
       G.px.rect(ctx, x + (f > 0 ? 15 : 1), y + 20, 6, 5, PAL.ink);
       G.px.rect(ctx, x + (f > 0 ? 16 : 2), y + 21, 4, 3, '#0e8fa6');
       G.px.rect(ctx, x + (f > 0 ? 16 : 2), y + 21 + (Math.floor(this.t * 3) % 3), 4, 1, PAL.cyan);
@@ -544,13 +544,13 @@
         placed++;
       } else if (!foodDone) {
         const type = R.pick(['noodles', 'burger', 'stim']);
-        world.addObject(new Food(x, gy - 2, { type, price: Math.round((type === 'burger' ? 45 : 30) * (1 + world.depth * 0.6)) }));
+        world.addObject(new Food(x, gy - 2, { type, price: Math.round(((type === 'burger' ? 45 : 30) * (1 + world.depth * 0.5)) / 5) * 5 }));
         foodDone = true;
       }
     }
     return vm;
   }
-  G.itemPrice = (inst, depth = 0) => Math.round((60 + 30 * inst.tier) * (1 + depth * 0.8) * (inst.quality === 'legendary' ? 2 : inst.quality === 'rare' ? 1.4 : 1));
+  G.itemPrice = (inst, depth = 0) => Math.round(((50 + 25 * inst.tier) * (1 + depth * 0.5) * (inst.quality === 'legendary' ? 1.9 : inst.quality === 'rare' ? 1.35 : 1)) / 5) * 5;
 
   // ================================================================ affixes
   // {id, text(RU), kinds:[item kinds], w (weight), dmgMod(p,inst,target), onHit(p,inst,target,dealt,world),

@@ -32,7 +32,7 @@ const url = (file, q) => 'file://' + path.join(root, 'tools', file) + (q ? '?' +
       const [name, q] = spec.split('|');
       await page.goto(url('level-viewer.html', q + (q.includes('sheet') ? '' : '&still')));
       await page.waitForFunction('window.viewer && window.viewer.ready', null, { timeout: 60000 });
-      const info = await page.evaluate('({info: window.viewer.info, ms: window.viewer.lastMs})');
+      const info = await page.evaluate('({info: window.viewer.info, ms: window.viewer.lastMs, sheet: window.viewer.sheetInfo})');
       const sel = q.includes('sheet') ? '#sheet' : q.includes('ov') ? '#ov' : '#c';
       await page.locator(sel).screenshot({ path: path.join(outdir, name + '.png') });
       console.log(name, JSON.stringify(info));

@@ -268,6 +268,32 @@
       g.globalCompositeOperation = 'source-over';
       return c;
     }
+    housing() {
+      if (this._housing) return this._housing;
+      const c = mk(140, 140), g = c.getContext('2d');
+      const cx = 70, cy = 70;
+      g.fillStyle = '#12040a'; G.px.disc(g, cx, cy, 68);
+      g.fillStyle = '#240812'; G.px.disc(g, cx, cy, 64);
+      g.fillStyle = '#2e0c18'; G.px.disc(g, cx, cy, 58);
+      // radial panel seams + bolts
+      for (let k = 0; k < 16; k++) {
+        const a = k / 16 * Math.PI * 2;
+        for (let r = 44; r < 64; r++) rect(g, cx + Math.cos(a) * r, cy + Math.sin(a) * r, 1, 1, '#12040a');
+        rect(g, cx + Math.cos(a + 0.2) * 60 - 1, cy + Math.sin(a + 0.2) * 60 - 1, 2, 2, '#5a1a2e');
+      }
+      // vents (glowing slits)
+      for (let k = 0; k < 8; k++) {
+        const a = k / 8 * Math.PI * 2 + 0.2;
+        rect(g, cx + Math.cos(a) * 51 - 2, cy + Math.sin(a) * 51 - 1, 4, 2, '#ff2a5a');
+      }
+      // inner lip
+      g.fillStyle = '#0a0206'; G.px.disc(g, cx, cy, 44);
+      g.globalCompositeOperation = 'destination-out'; G.px.disc(g, cx, cy, 42); g.globalCompositeOperation = 'source-over';
+      // top highlight
+      for (let x = -50; x <= 50; x++) { const y = -Math.sqrt(Math.max(0, 64 * 64 - x * x)); rect(g, cx + x, cy + y, 1, 1, '#5a1a2e'); }
+      this._housing = c;
+      return c;
+    }
     update(dt) {
       this.t += dt;
       for (const c of this.cars) { c.x += c.v * dt; if (c.x > LW) c.x -= LW; if (c.x < 0) c.x += LW; }
@@ -397,9 +423,8 @@
       G.drawGlow(ctx, cx, cy, 190, '#ff2a5a', 0.25 + 0.1 * pulse);
       G.drawGlow(ctx, cx, cy, 90, '#ff2ad4', 0.35 + 0.15 * pulse);
       ctx.globalCompositeOperation = prev;
-      // housing rings
-      ctx.fillStyle = '#1a0610'; G.px.disc(ctx, cx, cy, 64);
-      ctx.fillStyle = '#2a0a18'; G.px.disc(ctx, cx, cy, 56);
+      // housing: pre-rendered armored ring with panels, bolts and vents
+      ctx.drawImage(this.housing(), cx - 70, cy - 70);
       ctx.fillStyle = mix('#ff2a5a', '#ffffff', 0.15 + 0.2 * pulse); G.px.disc(ctx, cx, cy, 40);
       ctx.fillStyle = mix('#ff8ac0', '#ffffff', 0.5 * pulse); G.px.disc(ctx, cx, cy, 24);
       ctx.fillStyle = '#ffffff'; G.px.disc(ctx, cx, cy, 10);

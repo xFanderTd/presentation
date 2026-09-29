@@ -271,7 +271,7 @@
       let frac = 0, txt = '';
       if (inst && inst.cd > 0) {
         if (inst.cd > B.last + 0.02) B.peak = inst.cd;
-        const tot = inst.def.cooldown ? inst.def.cooldown * (p.cdMul || 1) : inst.cdMax || B.peak;
+        const tot = inst.cdMax || (inst.def.cooldown ? inst.def.cooldown * (p.cdMul || 1) : B.peak);
         frac = Math.max(0, Math.min(1, inst.cd / Math.max(0.01, tot)));
         if (inst.cd >= 1) txt = String(Math.ceil(inst.cd));
       }

@@ -507,9 +507,10 @@
     pickAttack(world, adx) {
       const opts = [];
       const add = (k, w) => opts.push([k, this.last === k ? w * 0.25 : w]);
-      if (adx < 70) add('swipe', 3.2);
-      add('slam', adx < 200 ? 3 : 1.2);
-      add('laser', adx > 55 ? 2.8 : 1);
+      const high = this.player.bottom < this.arena().floorY - 40; // camping on a platform
+      if (adx < 70 && !high) add('swipe', 3.2);
+      add('slam', high ? 0.6 : adx < 200 ? 3 : 1.2);
+      add('laser', high ? 5 : adx > 55 ? 2.8 : 1);
       if (this.phase >= 1) {
         add('missiles', 2.4);
         this.drones = this.drones.filter((d) => !d.dead && !d.dying);
@@ -530,8 +531,11 @@
           this.windDur = [1.05, 0.95, 0.85][this.phase];
           const A = this.arena();
           const [ex, ey] = this.eyeWorld();
+          const p = this.player;
           this.a0 = Math.atan2(A.floorY - ey, 14);   // floor right at its feet
-          this.a1 = -0.06;                          // out to the far wall
+          this.a1 = -0.06;                          // out to the far wall…
+          // …or high enough to sweep a player standing on a platform
+          if (p.bottom < A.floorY - 40) this.a1 = Math.min(this.a1, Math.atan2(p.y - 14 - ey, Math.max(20, Math.abs(p.cx - ex))));
           this.setState('laserW'); this.telegraph(this.windDur); snd('charge', { pitch: 0.5 });
           break;
         }
@@ -624,7 +628,7 @@
         snd('explosion', { vol: 1, pitch: 0.6 }); snd('eliteDie');
         world.dropCurrency(this.cx, this.cy - 20, 40, 60);
         // snapshot the final frame for the pixel dissolve
-        this.render();
+        this.render(true);
         const c = this.facing > 0 ? this.out : Art.flip(this.out);
         const ax = this.facing > 0 ? OX : CW - OX;
         this._lastSpr = { c: Art.canvas(CW, CH), dx: -ax, dy: -OY };
@@ -640,7 +644,7 @@
     }
 
     // ------------------------------------------------------------ drawing
-    render() {
+    render(noFlash) {
       const J = this.joints(), pc = this.pc;
       const g = this.rg;
       g.clearRect(0, 0, CW, CH);
@@ -656,7 +660,7 @@
       o.drawImage(this.tD, -1, 0); o.drawImage(this.tD, 0, 1);
       o.drawImage(this.tB, 1, 0); o.drawImage(this.tB, 0, -1);
       o.drawImage(this.raw, 0, 0);
-      if (this.flash > 0.05 || (this.state === 'death' && G.rand.chance(0.25))) {
+      if (!noFlash && (this.flash > 0.05 || (this.state === 'death' && G.rand.chance(0.25)))) {
         o.globalCompositeOperation = 'source-atop'; o.globalAlpha = this.state === 'death' ? 0.6 : 0.32; o.fillStyle = '#ffffff'; o.fillRect(0, 0, CW, CH);
         o.globalCompositeOperation = 'source-over'; o.globalAlpha = 1;
       }

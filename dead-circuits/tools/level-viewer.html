@@ -229,7 +229,8 @@
       for (let k = 0; k < 60; k++) level.update(1 / 60, null);
       render(1 / 60);
       sg.drawImage(cv, (i % cols) * 480, Math.floor(i / cols) * 270);
-      G.font.draw(sg, st.biome + ' ' + st.seed + ' D' + st.depth + ' ' + Math.round((cam.x + 240) / TS) + ',' + Math.round((cam.y + 135) / TS), (i % cols) * 480 + 4, Math.floor(i / cols) * 270 + 4, '#ffe14d');
+      (window.viewer.sheetInfo = window.viewer.sheetInfo || []).push(`${i}: biome=${st.biome}&seed=${st.seed}&depth=${st.depth}&x=${Math.round((cam.x + 240) / TS)}&y=${Math.round((cam.y + 135) / TS)}`);
+      G.font.draw(sg, i + ': ' + st.biome + ' ' + st.seed + ' D' + st.depth + ' X' + Math.round((cam.x + 240) / TS) + ' Y' + Math.round((cam.y + 135) / TS), (i % cols) * 480 + 4, Math.floor(i / cols) * 270 + 4, '#ffe14d');
     }
     window.viewer.ready = true;
     return;
