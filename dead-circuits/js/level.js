@@ -478,7 +478,7 @@
     }
 
     // ------------------------------------------------ multi-row rooms: ledges at upper doors + climbs
-    const climbs = []; // {x, top} ladders to add at the end (cap platform at `top`)
+    const climbs = []; // {x, top} ladders to add at the end (top ladder tile flush with the ledge)
     for (const R of rooms) {
       if (R.hc < 2) continue;
       for (let r = R.r0 + R.hc - 2; r >= R.r0; r--) {
@@ -623,7 +623,7 @@
       }
     }
 
-    // ------------------------------------------------ ladders (capped by a one-way platform at the top)
+    // ------------------------------------------------ ladders
     // Ladder tiles run from the upper floor row (flush: the top ladder tile is a one-way floor in
     // physics.js) down to the floor below; hole ladders get one-way hatch plates on both sides.
     const addLadder = (x, top, capW) => {
