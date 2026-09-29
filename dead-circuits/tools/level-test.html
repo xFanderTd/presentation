@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Dead Circuits — level generator test</title>
+<style>body { background: #05040a; color: #aab0d6; font: 12px/1.4 monospace; padding: 12px; white-space: pre; }</style>
+</head>
+<body>
+<div id="out">running…</div>
+<script src="../js/core.js"></script>
+<script src="../js/physics.js"></script>
+<script src="../js/background.js"></script>
+<script src="../js/level.js"></script>
+<script>
+// Batch validation: ?n=50 seeds per biome (depth cycles 0..2). For every level we check that the exit
+// and every object is reachable from the spawn (conservative movement model), count objects/enemies,
+// verify spawn/object feet positions and clearance, and determinism (same seed -> same tiles).
+(function () {
+  const G = window.G, T = G.T, TS = G.TILE;
+  const P = new URLSearchParams(location.search);
+  const N = +(P.get('n') || 50);
+  const biomes = (P.get('biomes') || 'scrap,slums,spire,core').split(',');
+  const out = [];
+  const summary = {};
+  const fails = [];
+  function feetOK(lv, x, y, clear) {
+    const tx = Math.floor(x / TS), ty = Math.floor((y - 1) / TS);
+    if (y % TS !== 0) return 'not on tile boundary';
+    const b = lv.tile(tx, ty + 1);
+    if (b !== T.SOLID && b !== T.PLATFORM) return 'no floor';
+    for (let k = 0; k < clear; k++) if (lv.tile(tx, ty - k) !== T.AIR) return 'no clearance';
+    return null;
+  }
+  for (const biome of biomes) {
+    const s = summary[biome] = { n: 0, ok: 0, w: [0, 1e9], h: [0, 1e9], enemies: [1e9, 0], gen: 0, genMax: 0, attempts: 0, objects: {}, spikes: 0 };
+    for (let seed = 1; seed <= N; seed++) {
+      const depth = (seed - 1) % 3;
+      const lv = G.Level.generate({ seed, biome, depth, kind: 'biome' });
+      const chk = lv.check();
+      s.n++;
+      s.gen += lv.genMs; s.genMax = Math.max(s.genMax, lv.genMs);
+      s.attempts += lv.meta.attempts;
+      s.w = [Math.max(s.w[0], lv.w), Math.min(s.w[1], lv.w)];
+      s.h = [Math.max(s.h[0], lv.h), Math.min(s.h[1], lv.h)];
+      s.enemies = [Math.min(s.enemies[0], lv.enemySpawns.length), Math.max(s.enemies[1], lv.enemySpawns.length)];
+      const cnt = {};
+      for (const o of lv.objects) cnt[o.kind] = (cnt[o.kind] || 0) + 1;
+      for (const k in cnt) { s.objects[k] = s.objects[k] || [1e9, 0]; s.objects[k] = [Math.min(s.objects[k][0], cnt[k]), Math.max(s.objects[k][1], cnt[k])]; }
+      for (const k of ['exit', 'chest', 'scroll', 'weapon', 'food']) if (!cnt[k]) { s.objects[k] = s.objects[k] || [1e9, 0]; s.objects[k][0] = 0; }
+      for (let i = 0; i < lv.tiles.length; i++) if (lv.tiles[i] === T.SPIKES) s.spikes++;
+      const problems = [];
+      if (!chk.ok) problems.push('unreachable: ' + chk.unreachable.map((o) => o.kind).join(','));
+      if (lv.meta.attempts >= 16) problems.push('no valid layout');
+      const e = feetOK(lv, lv.spawn.x, lv.spawn.y, 3); if (e) problems.push('spawn ' + e);
+      for (const o of lv.objects) { const r = feetOK(lv, o.x, o.y, 3); if (r) problems.push(o.kind + ' ' + r); }
+      for (const en of lv.enemySpawns) {
+        if (en.air) continue;
+        const r = feetOK(lv, en.x, en.y, 3); if (r) problems.push('enemy ' + r);
+        if (Math.hypot(en.x - lv.spawn.x, en.y - lv.spawn.y) < 12 * TS) problems.push('enemy near spawn');
+      }
+      if (cnt.exit !== 1) problems.push('exit count ' + cnt.exit);
+      if (lv.enemySpawns.length < 25 || lv.enemySpawns.length > 45) problems.push('enemy count ' + lv.enemySpawns.length);
+      if (seed <= 3) {
+        const lv2 = G.Level.generate({ seed, biome, depth, kind: 'biome' });
+        let same = lv2.w === lv.w && lv2.h === lv.h;
+        for (let i = 0; same && i < lv.tiles.length; i++) if (lv.tiles[i] !== lv2.tiles[i]) same = false;
+        if (!same) problems.push('NOT deterministic');
+      }
+      if (problems.length) fails.push({ biome, seed, depth, problems: [...new Set(problems)] });
+      else s.ok++;
+    }
+    s.gen = +(s.gen / s.n).toFixed(1); s.genMax = +s.genMax.toFixed(1); s.attempts = +(s.attempts / s.n).toFixed(2);
+  }
+  // hand-authored kinds
+  for (const kind of ['transit', 'boss']) {
+    for (const biome of ['scrap', 'slums', 'spire', 'core']) {
+      const lv = G.Level.generate({ seed: 7, biome, depth: 0, kind });
+      const chk = lv.check();
+      if (!chk.ok) fails.push({ biome, kind, problems: ['unreachable ' + chk.unreachable.map((o) => o.kind)] });
+    }
+  }
+  window.results = { summary, fails };
+  document.getElementById('out').textContent = JSON.stringify({ summary, fails }, null, 1);
+  window.done = true;
+})();
+</script>
+</body>
+</html>

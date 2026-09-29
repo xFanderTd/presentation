@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dead Circuits — level viewer</title>
+<style>
+  html, body { margin: 0; background: #05040a; color: #aab0d6; font: 12px/1.4 monospace; }
+  #wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px; }
+  canvas { image-rendering: pixelated; image-rendering: crisp-edges; display: block; background: #000; }
+  #hud { white-space: pre; min-height: 3em; }
+  #ov { max-width: 100%; }
+  .k { color: #27f3ff; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="480" height="270"></canvas>
+  <canvas id="ov" width="16" height="16" style="display:none"></canvas>
+  <div id="hud"></div>
+  <div>
+    <span class="k">arrows</span> camera (shift = fast) · <span class="k">O</span> overview · <span class="k">N/P</span> seed ± ·
+    <span class="k">1-4</span> biome · <span class="k">K</span> kind · <span class="k">R</span> reachability · <span class="k">D</span> debug markers ·
+    <span class="k">S</span> jump to spawn · <span class="k">E</span> jump to exit
+  </div>
+</div>
+<script src="../js/core.js"></script>
+<script src="../js/physics.js"></script>
+<script src="../js/background.js"></script>
+<script src="../js/level.js"></script>
+<script>
+(function () {
+  const G = window.G, TS = G.TILE, T = G.T;
+  const P = new URLSearchParams(location.search);
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const ov = document.getElementById('ov'), octx = ov.getContext('2d');
+  const hud = document.getElementById('hud');
+  const scale = +(P.get('scale') || 2);
+  cv.style.width = 480 * scale + 'px'; cv.style.height = 270 * scale + 'px';
+  ctx.imageSmoothingEnabled = false;
+  const BIOMES = ['scrap', 'slums', 'spire', 'core'];
+  const KINDS = ['biome', 'transit', 'boss'];
+  const st = {
+    biome: P.get('biome') || 'scrap', kind: P.get('kind') || 'biome', seed: +(P.get('seed') || 1), depth: +(P.get('depth') || 0),
+    overview: P.has('ov'), reach: P.has('reach'), debug: P.has('dbg'),
+  };
+  const cam = new G.Camera();
+  const keys = {};
+  let level = null, vis = null, lastT = performance.now(), frameMs = 0, frames = 0;
+
+  function build() {
+    const t0 = performance.now();
+    level = G.Level.generate({ seed: st.seed, biome: st.biome, depth: st.depth, kind: st.kind });
+    const gen = performance.now() - t0;
+    vis = null;
+    if (P.has('x') && P.has('y') && !build.used) { cam.x = +P.get('x') * TS - G.W / 2; cam.y = +P.get('y') * TS - G.H / 2; build.used = true; }
+    else if (P.get('at') && !build.used) {
+      // jump to an object kind ('exit', 'shop', 'chest'…) or a tile kind ('ladder', 'spikes', 'plat')
+      const at = P.get('at'), nth = +(P.get('n') || 0);
+      const tk = { ladder: T.LADDER, spikes: T.SPIKES, plat: T.PLATFORM }[at];
+      let pos = null;
+      if (tk != null) {
+        const hits = [];
+        for (let i = 0; i < level.tiles.length; i++) if (level.tiles[i] === tk && level.tiles[i - 1] !== tk && level.tiles[i - level.w] !== tk) hits.push(i);
+        const i = hits[Math.min(nth, hits.length - 1)];
+        if (i != null) pos = { x: (i % level.w) * TS, y: Math.floor(i / level.w) * TS };
+      } else {
+        const os = level.objects.filter((o) => o.kind === at);
+        const o = os[Math.min(nth, os.length - 1)];
+        if (o) pos = { x: o.x, y: o.y - 40 };
+      }
+      if (pos) { cam.x = pos.x - G.W / 2; cam.y = pos.y - G.H / 2; }
+      build.used = true;
+    }
+    else { cam.x = level.spawn.x - G.W / 2; cam.y = level.spawn.y - G.H * 0.6; }
+    cam.clamp(level);
+    const chk = level.check();
+    vis = chk.vis;
+    const cnt = {};
+    for (const o of level.objects) cnt[o.kind] = (cnt[o.kind] || 0) + 1;
+    window.viewer.info = {
+      w: level.w, h: level.h, gen, ok: chk.ok, unreachable: chk.unreachable.map((o) => o.kind), objects: cnt,
+      enemies: level.enemySpawns.length, air: level.enemySpawns.filter((e) => e.air).length, rooms: level.rooms.length,
+      attempts: level.meta && level.meta.attempts,
+    };
+    const u = new URL(location.href);
+    u.searchParams.set('biome', st.biome); u.searchParams.set('kind', st.kind); u.searchParams.set('seed', st.seed); u.searchParams.set('depth', st.depth);
+    history.replaceState(null, '', u);
+    drawOverview();
+  }
+
+  // ------------------------------------------------------------- overview (whole level, tiny)
+  function drawOverview() {
+    const k = Math.max(2, Math.min(5, Math.floor(1400 / level.w)));
+    ov.width = level.w * k; ov.height = level.h * k;
+    ov.style.display = st.overview ? 'block' : 'none';
+    if (!st.overview) return;
+    const W = level.w;
+    octx.fillStyle = '#000'; octx.fillRect(0, 0, ov.width, ov.height);
+    for (let y = 0; y < level.h; y++) for (let x = 0; x < W; x++) {
+      const t = level.tiles[y * W + x];
+      let c = null;
+      if (t === T.SOLID) c = '#2a2840';
+      else if (t === T.PLATFORM) c = '#8a8fb8';
+      else if (t === T.LADDER) c = '#c8a040';
+      else if (t === T.SPIKES) c = '#ff3348';
+      else c = st.reach && vis && vis[y * W + x] ? '#12324a' : '#0c0b16';
+      octx.fillStyle = c; octx.fillRect(x * k, y * k, k, t === T.PLATFORM ? Math.max(1, k >> 1) : k);
+    }
+    // rooms
+    octx.strokeStyle = 'rgba(255,255,255,0.12)';
+    for (const r of level.rooms) octx.strokeRect(r.x * k + 0.5, r.y * k + 0.5, r.w * k - 1, r.h * k - 1);
+    // main path
+    const m = level.meta;
+    if (m && m.path && m.grid) {
+      octx.strokeStyle = 'rgba(39,243,255,0.35)'; octx.lineWidth = 2; octx.beginPath();
+      m.path.forEach((p, i) => { const x = (2 + p.c * m.grid.cw + m.grid.cw / 2) * k, y = (2 + p.r * m.grid.ch + m.grid.ch / 2) * k; if (i) octx.lineTo(x, y); else octx.moveTo(x, y); });
+      octx.stroke(); octx.lineWidth = 1;
+    }
+    const dot = (x, y, c, r) => { octx.fillStyle = c; octx.fillRect(Math.round(x / TS * k - r), Math.round(y / TS * k - r * 2), r * 2, r * 2); };
+    for (const e of level.enemySpawns) dot(e.x, e.y, e.air ? '#ff5cc8' : '#ff3348', Math.max(1, k >> 1));
+    const OC = { exit: '#ffffff', chest: '#ffc23d', scroll: '#b46cff', weapon: '#ff8a2a', food: '#48ff8a', shop: '#27f3ff', collector: '#35c8ff', healstation: '#48ff8a', boss: '#ff2a5a' };
+    for (const o of level.objects) dot(o.x, o.y, OC[o.kind] || '#fff', k + 1);
+    dot(level.spawn.x, level.spawn.y, '#48ff8a', k + 2);
+    // current camera
+    octx.strokeStyle = '#ffe14d';
+    octx.strokeRect(cam.x / TS * k + 0.5, cam.y / TS * k + 0.5, G.W / TS * k, G.H / TS * k);
+  }
+
+  // ------------------------------------------------------------- debug markers in the game view
+  function drawDebug() {
+    const ox = cam.ox, oy = cam.oy;
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    // fake player at spawn (10x22)
+    const sx = level.spawn.x - ox, sy = level.spawn.y - oy;
+    G.px.rect(ctx, sx - 5, sy - 22, 10, 22, '#0b0814');
+    G.px.rect(ctx, sx - 4, sy - 21, 8, 20, '#2b2a45');
+    G.px.rect(ctx, sx - 1, sy - 18, 5, 2, '#27f3ff');
+    for (const o of level.objects) {
+      const x = o.x - ox, y = o.y - oy;
+      const sz = { exit: [24, 36], shop: [60, 16], chest: [20, 13], scroll: [12, 14], weapon: [16, 16], food: [10, 8], collector: [20, 34], healstation: [16, 30], boss: [40, 48] }[o.kind] || [12, 12];
+      ctx.strokeStyle = '#ffe14d'; ctx.strokeRect(Math.round(x - sz[0] / 2) + 0.5, Math.round(y - sz[1]) + 0.5, sz[0] - 1, sz[1] - 1);
+      G.font.draw(ctx, o.kind.toUpperCase(), x, y - sz[1] - 8, '#ffe14d', 1, 'center');
+    }
+    for (const e of level.enemySpawns) {
+      const x = e.x - ox, y = e.y - oy;
+      ctx.strokeStyle = e.air ? '#ff5cc8' : '#ff3348'; ctx.strokeRect(Math.round(x - 6) + 0.5, Math.round(y - 20) + 0.5, 12, 20);
+    }
+    if (st.reach && vis) {
+      ctx.fillStyle = 'rgba(39,243,255,0.25)';
+      const x0 = Math.floor(cam.x / TS), y0 = Math.floor(cam.y / TS);
+      for (let y = y0; y <= y0 + 18; y++) for (let x = x0; x <= x0 + 31; x++) if (vis[y * level.w + x]) ctx.fillRect(x * TS - ox + 6, y * TS - oy + 10, 4, 4);
+    }
+    ctx.restore();
+  }
+
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+    const sp = (keys.ShiftLeft || keys.ShiftRight ? 900 : 300) * dt;
+    if (keys.ArrowLeft) cam.x -= sp; if (keys.ArrowRight) cam.x += sp;
+    if (keys.ArrowUp) cam.y -= sp; if (keys.ArrowDown) cam.y += sp;
+    cam.clamp(level);
+    render(dt);
+    requestAnimationFrame(frame);
+  }
+  function render(dt) {
+    level.update(dt || 1 / 60, null);
+    const t0 = performance.now();
+    G.lights.length = 0;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = '#07060d'; ctx.fillRect(0, 0, G.W, G.H);
+    level.drawBackground(ctx, cam);
+    level.drawTiles(ctx, cam);
+    if (st.debug) drawDebug();
+    level.drawForeground(ctx, cam);
+    ctx.globalCompositeOperation = 'lighter';
+    level.drawLights(ctx, cam);
+    const L = G.lights;
+    for (let i = 0; i < L.length; i += 5) G.drawGlow(ctx, L[i] - cam.ox, L[i + 1] - cam.oy, L[i + 2], L[i + 3], L[i + 4]);
+    ctx.globalCompositeOperation = 'source-over';
+    const ms = performance.now() - t0;
+    frameMs = frameMs * 0.95 + ms * 0.05; frames++;
+    window.viewer.lastMs = ms; window.viewer.avgMs = frameMs;
+    const i = window.viewer.info;
+    hud.textContent = `${st.biome} / ${st.kind}  seed ${st.seed}  depth ${st.depth}   ${i.w}x${i.h} tiles  rooms ${i.rooms}  gen ${i.gen.toFixed(1)}ms (attempts ${i.attempts})\n` +
+      `objects ${JSON.stringify(i.objects)}  enemies ${i.enemies} (air ${i.air})  reachable ${i.ok ? 'OK' : 'FAIL ' + i.unreachable.join(',')}\n` +
+      `cam tile ${Math.round((cam.x + G.W / 2) / TS)},${Math.round((cam.y + G.H / 2) / TS)}   draw ${frameMs.toFixed(2)} ms/frame`;
+    if (st.overview && frames % 10 === 0) drawOverview();
+  }
+
+  addEventListener('keydown', (e) => {
+    keys[e.code] = true;
+    if (e.code === 'KeyO') { st.overview = !st.overview; drawOverview(); }
+    if (e.code === 'KeyN') { st.seed++; build(); }
+    if (e.code === 'KeyP') { st.seed = Math.max(1, st.seed - 1); build(); }
+    if (e.code.startsWith('Digit')) { const n = +e.code.slice(5) - 1; if (BIOMES[n]) { st.biome = BIOMES[n]; build(); } }
+    if (e.code === 'KeyK') { st.kind = KINDS[(KINDS.indexOf(st.kind) + 1) % KINDS.length]; build(); }
+    if (e.code === 'KeyR') { st.reach = !st.reach; drawOverview(); }
+    if (e.code === 'KeyD') st.debug = !st.debug;
+    if (e.code === 'KeyS') { cam.x = level.spawn.x - G.W / 2; cam.y = level.spawn.y - G.H * 0.6; }
+    if (e.code === 'KeyE') { const ex = level.objects.find((o) => o.kind === 'exit'); cam.x = ex.x - G.W / 2; cam.y = ex.y - G.H * 0.6; }
+  });
+  addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+  window.viewer = {
+    get level() { return level; }, cam, st, build,
+    // move the camera so tile (tx, ty) is centred, simulate `secs` of animation and render
+    look(tx, ty, secs) { cam.x = tx * TS - G.W / 2; cam.y = ty * TS - G.H / 2; cam.clamp(level); const n = Math.round((secs || 0) * 60); for (let i = 0; i < n; i++) level.update(1 / 60, null); render(1 / 60); },
+    render,
+  };
+  // contact sheet: ?sheet&biome=scrap&seed=1&n=9 -> grid of views of random rooms (for screenshots)
+  if (P.has('sheet')) {
+    const n = +(P.get('n') || 9), cols = +(P.get('cols') || 3);
+    const sheet = document.createElement('canvas');
+    sheet.id = 'sheet'; sheet.width = cols * 480; sheet.height = Math.ceil(n / cols) * 270;
+    sheet.style.width = sheet.width + 'px';
+    document.getElementById('wrap').prepend(sheet);
+    const sg = sheet.getContext('2d');
+    const R = new G.RNG(+(P.get('pick') || 99));
+    for (let i = 0; i < n; i++) {
+      st.seed = +(P.get('seed') || 1) + Math.floor(i / 3);
+      st.depth = i % 3;
+      build();
+      const rooms = level.rooms;
+      const rm = R.pick(rooms);
+      cam.x = (rm.x + rm.w / 2) * TS - G.W / 2 + R.int(-80, 80); cam.y = (rm.y + rm.h / 2) * TS - G.H / 2;
+      cam.clamp(level);
+      for (let k = 0; k < 60; k++) level.update(1 / 60, null);
+      render(1 / 60);
+      sg.drawImage(cv, (i % cols) * 480, Math.floor(i / cols) * 270);
+      G.font.draw(sg, st.biome + ' ' + st.seed + ' D' + st.depth + ' ' + Math.round((cam.x + 240) / TS) + ',' + Math.round((cam.y + 135) / TS), (i % cols) * 480 + 4, Math.floor(i / cols) * 270 + 4, '#ffe14d');
+    }
+    window.viewer.ready = true;
+    return;
+  }
+  build();
+  if (P.has('still')) { const n = +(P.get('t') || 1) * 60; for (let k = 0; k < n; k++) level.update(1 / 60, null); render(1 / 60); window.viewer.ready = true; }
+  else { requestAnimationFrame((t) => { lastT = t; window.viewer.ready = true; frame(t); }); }
+})();
+</script>
+</body>
+</html>

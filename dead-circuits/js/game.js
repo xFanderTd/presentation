@@ -127,7 +127,7 @@
       const f = G.OBJECTS[spec.kind];
       if (!f) return null;
       const o = f(this, spec);
-      if (o) this.objects.push(o);
+      if (o) { o.mapKind = spec.kind; this.objects.push(o); }
       return o;
     }
     addObject(o) { this.objects.push(o); return o; }

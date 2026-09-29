@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dead Circuits — audio test bench</title>
+<style>
+  :root { --bg: #07060d; --panel: #0e0b1c; --line: #2b2a45; --ink: #f4f1ff; --dim: #8d90b8; --cyan: #27f3ff; --mag: #ff2a8a; --yel: #ffe14d; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; }
+  header { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 16px; letter-spacing: 2px; color: var(--cyan); }
+  main { padding: 12px 16px 40px; display: grid; gap: 14px; max-width: 1200px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
+  h2 { margin: 0 0 8px; font-size: 12px; letter-spacing: 1.5px; color: var(--dim); text-transform: uppercase; }
+  .grid { display: flex; flex-wrap: wrap; gap: 6px; }
+  button { background: #171330; color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 5px 9px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--cyan); }
+  button.on { border-color: var(--mag); color: var(--mag); }
+  button.go { border-color: var(--cyan); color: var(--cyan); }
+  .row { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
+  label { display: flex; gap: 8px; align-items: center; color: var(--dim); }
+  input[type=range] { width: 160px; accent-color: var(--cyan); }
+  #status { color: var(--yel); }
+  canvas { width: 100%; height: 90px; background: #05040a; border: 1px solid var(--line); border-radius: 4px; display: block; }
+  pre { margin: 0; white-space: pre-wrap; color: #cfd2f0; max-height: 520px; overflow: auto; }
+  .grp { color: var(--dim); width: 100%; margin-top: 4px; font-size: 11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DEAD CIRCUITS // AUDIO</h1>
+  <button id="init" class="go">Init audio</button>
+  <span id="status">not initialised (click anything)</span>
+</header>
+<main>
+  <section>
+    <h2>Mixer</h2>
+    <div class="row">
+      <label>music <input id="vMusic" type="range" min="0" max="1" step="0.01" value="0.6"><span id="vMusicV">0.60</span></label>
+      <label>sfx <input id="vSfx" type="range" min="0" max="1" step="0.01" value="0.8"><span id="vSfxV">0.80</span></label>
+      <label>intensity <input id="vInt" type="range" min="0" max="1" step="0.01" value="0.5"><span id="vIntV">0.50</span></label>
+      <button id="duck">duck(0.7, 1)</button>
+      <button id="burst">stress: 20 hits + 40 mixed in one frame</button>
+    </div>
+  </section>
+  <section>
+    <h2>Music</h2>
+    <div class="grid" id="tracks"></div>
+  </section>
+  <section>
+    <h2>SFX</h2>
+    <div class="grid" id="sfx"></div>
+  </section>
+  <section>
+    <h2>Output (master, after limiter)</h2>
+    <canvas id="scope" width="1100" height="90"></canvas>
+    <div class="row" style="margin-top:6px"><span id="meter">peak — rms —</span><span id="stats"></span></div>
+  </section>
+  <section>
+    <h2>Offline render checks</h2>
+    <div class="row" style="margin-bottom:8px"><button id="runChecks" class="go">Run offline checks</button><span id="checkState"></span></div>
+    <pre id="report">(not run)</pre>
+  </section>
+</main>
+<script src="../js/core.js"></script>
+<script src="../js/audio.js"></script>
+<script>
+'use strict';
+// ---------------------------------------------------------------- analysis library (also used by audio-check.mjs)
+window.AT = (function () {
+  const dB = (x) => (x > 0 ? 20 * Math.log10(x) : -Infinity);
+  const r1 = (x) => (isFinite(x) ? Math.round(x * 10) / 10 : x);
+  // stats over [from, to] seconds of a (stereo) AudioBuffer
+  function analyze(buf, from = 0, to = Infinity) {
+    const sr = buf.sampleRate, a = Math.max(0, Math.floor(from * sr)), b = Math.min(buf.length, Math.floor(to * sr));
+    const chans = [];
+    for (let c = 0; c < buf.numberOfChannels; c++) chans.push(buf.getChannelData(c));
+    let peak = 0, sum = 0, n = 0, nan = 0;
+    const w50 = Math.floor(sr * 0.05), w400 = Math.floor(sr * 0.4);
+    let acc50 = 0, c50 = 0, max50 = 0, acc400 = 0, c400 = 0, min400 = Infinity, max400 = 0, lastLoud = a;
+    for (let i = a; i < b; i++) {
+      let e = 0;
+      for (const d of chans) { const v = d[i]; if (v !== v) { nan++; continue; } const av = v < 0 ? -v : v; if (av > peak) peak = av; e += v * v; if (av > 0.001) lastLoud = i; }
+      e /= chans.length;
+      sum += e; n++;
+      acc50 += e; if (++c50 === w50) { max50 = Math.max(max50, acc50 / c50); acc50 = 0; c50 = 0; }
+      acc400 += e; if (++c400 === w400) { const m = acc400 / c400; min400 = Math.min(min400, m); max400 = Math.max(max400, m); acc400 = 0; c400 = 0; }
+    }
+    if (c50) max50 = Math.max(max50, acc50 / c50);
+    return {
+      peak, peakDb: r1(dB(peak)), rmsDb: r1(dB(Math.sqrt(sum / Math.max(1, n)))),
+      loud50Db: r1(dB(Math.sqrt(max50))), min400Db: r1(dB(Math.sqrt(min400 === Infinity ? 0 : min400))),
+      max400Db: r1(dB(Math.sqrt(max400))), tail: r1((lastLoud - a) / sr * 100) / 100, nan,
+    };
+  }
+  // K-weighted loudness (ITU-R BS.1770 pre-filter, ungated): lufs = mean over [from,to],
+  // max100 = loudest 100 ms window (short SFX), both summed over channels like LUFS.
+  function biquad(x, b0, b1, b2, a0, a1, a2) {
+    const y = new Float32Array(x.length);
+    b0 /= a0; b1 /= a0; b2 /= a0; a1 /= a0; a2 /= a0;
+    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    for (let i = 0; i < x.length; i++) { const v = b0 * x[i] + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2; x2 = x1; x1 = x[i]; y2 = y1; y1 = v; y[i] = v; }
+    return y;
+  }
+  function kWeight(x, fs) {
+    let A = Math.pow(10, 3.99984 / 40), w = 2 * Math.PI * 1681.974450955533 / fs, al = Math.sin(w) / (2 * 0.7071752369554196), c = Math.cos(w), sA = Math.sqrt(A);
+    const y = biquad(x, A * ((A + 1) + (A - 1) * c + 2 * sA * al), -2 * A * ((A - 1) + (A + 1) * c), A * ((A + 1) + (A - 1) * c - 2 * sA * al),
+      (A + 1) - (A - 1) * c + 2 * sA * al, 2 * ((A - 1) - (A + 1) * c), (A + 1) - (A - 1) * c - 2 * sA * al);
+    w = 2 * Math.PI * 38.13547087602444 / fs; al = Math.sin(w) / (2 * 0.5003270373238773); c = Math.cos(w);
+    return biquad(y, (1 + c) / 2, -(1 + c), (1 + c) / 2, 1 + al, -2 * c, 1 - al);
+  }
+  function kLoud(buf, from = 0, to = Infinity) {
+    const sr = buf.sampleRate, a = Math.max(0, Math.floor(from * sr)), b = Math.min(buf.length, Math.floor(to * sr)), w = Math.floor(sr * 0.1);
+    const ks = [];
+    for (let c = 0; c < buf.numberOfChannels; c++) ks.push(kWeight(buf.getChannelData(c).subarray(a, b), sr));
+    let tot = 0, acc = 0, cnt = 0, mx = 0;
+    for (let i = 0; i < b - a; i++) {
+      let e = 0;
+      for (const k of ks) e += k[i] * k[i];
+      tot += e; acc += e;
+      if (++cnt === w) { mx = Math.max(mx, acc / cnt); acc = 0; cnt = 0; }
+    }
+    if (cnt > w / 4) mx = Math.max(mx, acc / cnt);
+    const L = (ms) => r1(-0.691 + 10 * Math.log10(ms || 1e-12));
+    return { lufs: L(tot / Math.max(1, b - a)), max100: L(mx) };
+  }
+  // per-window RMS curve (dB) for crossfade / intensity inspection
+  function curve(buf, win = 0.25) {
+    const sr = buf.sampleRate, w = Math.floor(sr * win), L = buf.getChannelData(0), R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L, out = [];
+    for (let i = 0; i + w <= buf.length; i += w) { let s = 0; for (let j = i; j < i + w; j++) s += (L[j] * L[j] + R[j] * R[j]) / 2; out.push(r1(dB(Math.sqrt(s / w)))); }
+    return out;
+  }
+  const STINGERS = ['levelStart', 'transit', 'death', 'victory', 'scroll', 'bossRoar', 'bossPhase', 'bossDie'];
+  const render = (o) => G.audio.renderOffline(o);
+
+  async function runChecks(log = () => {}) {
+    const A = G.audio, fails = [], rep = { tracks: {}, sfx: {}, balance: {}, misc: {} };
+    const fail = (m) => { fails.push(m); log('FAIL ' + m); };
+    // --- music: every track at low and high intensity, raw (no safety limiter), full music volume
+    for (const name of A.tracks) {
+      for (const it of [0, 0.25, 1]) {
+        const buf = await render({ track: name, seconds: 12, intensity: it, seed: 7, music: 1, sfx: 1, limiter: false });
+        const s = analyze(buf, 1, 12);
+        s.errors = buf.engineStats.errors;
+        s.lufs = kLoud(buf, 1, 12).lufs;
+        rep.tracks[name + '@' + it] = s;
+        log(`track ${name.padEnd(8)} int=${it}  ${s.lufs} LUFS  rms ${s.rmsDb} dB  peak ${s.peakDb} dB  min400 ${s.min400Db}  max400 ${s.max400Db}`);
+        if (s.nan) fail(`${name}@${it}: NaN samples`);
+        if (s.errors) fail(`${name}@${it}: ${s.errors} scheduler errors`);
+        if (!(s.rmsDb > -38)) fail(`${name}@${it}: too quiet (${s.rmsDb} dB)`);
+        if (!(s.peak < 1)) fail(`${name}@${it}: clipping, peak ${s.peak.toFixed(3)}`);
+        if (!(s.min400Db > -50)) fail(`${name}@${it}: dropout (400 ms window at ${s.min400Db} dB)`);
+      }
+    }
+    // --- every SFX alone, raw, full sfx volume
+    for (const name of A.names) {
+      const long = STINGERS.includes(name);
+      const buf = await render({ plays: [[name, 0.05, { pitch: 1 }]], seconds: long ? 4.5 : 2, sfx: 1, music: 1, limiter: false });
+      const s = analyze(buf);
+      s.errors = buf.engineStats.errors;
+      s.loud = kLoud(buf).max100;
+      rep.sfx[name] = s;
+      log(`sfx ${name.padEnd(11)} peak ${String(s.peakDb).padStart(6)} dB  loudness ${String(s.loud).padStart(6)} LUFS(100ms)  tail ${s.tail}s`);
+      if (s.nan) fail(`sfx ${name}: NaN samples`);
+      if (s.errors) fail(`sfx ${name}: threw inside synth (${s.errors})`);
+      if (!(s.peak > 0.03)) fail(`sfx ${name}: silent/too quiet (peak ${s.peakDb} dB)`);
+      if (!(s.peak < 1)) fail(`sfx ${name}: clipping (peak ${s.peak.toFixed(3)})`);
+    }
+    // --- balance at the game's default settings (music 0.6, sfx 0.8), full chain
+    const mDef = await render({ track: 'scrap', seconds: 10, intensity: 0.7, seed: 3, music: 0.6, sfx: 0.8 });
+    const musicL = kLoud(mDef, 2, 10).lufs;
+    rep.balance.musicLufs = musicL;
+    log(`music (scrap, intensity 0.7) at default volume: ${musicL} LUFS, peak ${analyze(mDef, 2, 10).peakDb} dB`);
+    for (const name of ['hit', 'slash1', 'shoot', 'enemyDie', 'playerHurt', 'explosion', 'enemyAlert', 'telegraph', 'jump', 'step', 'pickupCell', 'uiMove']) {
+      const b = await render({ plays: [[name, 0.05, { pitch: 1 }]], seconds: 1.5, music: 0.6, sfx: 0.8 });
+      const l = kLoud(b).max100;
+      rep.balance[name] = r1(l - musicL);
+      log(`balance ${name.padEnd(10)} ${l} LUFS(100ms) = ${rep.balance[name] >= 0 ? '+' : ''}${rep.balance[name]} dB vs music`);
+    }
+    for (const name of ['hit', 'slash1', 'shoot', 'enemyDie', 'playerHurt', 'explosion']) {
+      if (!(rep.balance[name] >= 6)) fail(`balance: ${name} only ${rep.balance[name]} dB above the music`);
+      if (!(rep.balance[name] <= 20)) fail(`balance: ${name} ${rep.balance[name]} dB above the music (too loud)`);
+    }
+    for (const name of ['enemyAlert', 'telegraph']) if (!(rep.balance[name] >= 3)) fail(`balance: enemy cue ${name} not readable over the music (${rep.balance[name]} dB)`);
+    for (const name of ['step', 'pickupCell', 'uiMove']) if (!(rep.balance[name] < rep.balance.hit)) fail(`balance: ${name} louder than hit`);
+    // --- worst case: boss music at full intensity + a barrage of SFX, full volume, raw and limited
+    const plays = [];
+    for (let i = 0; i < 40; i++) plays.push([['hit', 'hitCrit', 'slash3', 'shotgun', 'explosion', 'enemyDie', 'playerHurt', 'rail'][i % 8], 0.5 + i * 0.07, {}]);
+    for (let i = 0; i < 20; i++) plays.push(['hit', 2.0, {}]);           // 20 hits in one frame
+    for (const n of A.names) plays.push([n, 3.0, {}]);                   // every SFX in one frame
+    for (const lim of [false, true]) {
+      const b = await render({ track: 'boss', seconds: 6, intensity: 1, seed: 5, music: 1, sfx: 1, plays, limiter: lim });
+      const s = analyze(b, 0.4, 6);
+      rep.misc['barrage' + (lim ? 'Limited' : 'Raw')] = { peak: +s.peak.toFixed(3), peakDb: s.peakDb, rmsDb: s.rmsDb, peakVoices: b.engineStats.peakVoices };
+      log(`barrage (${lim ? 'limited' : 'raw'}) peak ${s.peak.toFixed(3)} (${s.peakDb} dB) rms ${s.rmsDb} dB, peak voices ${b.engineStats.peakVoices}`);
+      if (lim && !(s.peak < 1)) fail(`barrage limited: peak ${s.peak}`);
+      if (b.engineStats.peakVoices > 24) fail(`voice limit exceeded: ${b.engineStats.peakVoices}`);
+    }
+    // --- crossfade scrap -> boss at 3 s, stop at 7 s
+    const xf = await render({ track: 'scrap', seconds: 11, intensity: 0.6, seed: 2, musicAt: [[3, 'boss'], [7, null]], music: 1 });
+    const cv = curve(xf, 0.25);
+    rep.misc.crossfadeCurve = cv;
+    const during = cv.slice(12, 20), after = cv.slice(42);
+    log('crossfade rms/250ms: ' + cv.join(' '));
+    if (Math.min(...during) < -40) fail('crossfade dips to silence');
+    if (Math.max(...after) > -60) fail(`music does not stop after music(null): ${Math.max(...after)} dB`);
+    // --- intensity layering: 0 for 6 s, then 1
+    const ib = await render({ track: 'spire', seconds: 12, seed: 4, intensity: 0, intensityAt: [[6, 1]], music: 1 });
+    const lo = analyze(ib, 2, 6).rmsDb, hi = analyze(ib, 8.5, 12).rmsDb;
+    rep.misc.intensity = { lowDb: lo, highDb: hi, diff: r1(hi - lo) };
+    log(`intensity spire: low ${lo} dB -> high ${hi} dB (${r1(hi - lo)} dB)`);
+    if (!(hi - lo > 1.5)) fail('intensity has no audible effect');
+    // --- duck
+    const db = await render({ track: 'slums', seconds: 7, seed: 4, intensity: 0.6, duckAt: [[4, 0.8, 1.2]], music: 1 });
+    const pre = analyze(db, 2.4, 3.9).rmsDb, du = analyze(db, 4.15, 5.2).rmsDb;
+    rep.misc.duck = { beforeDb: pre, duckedDb: du, diff: r1(du - pre) };
+    log(`duck(0.8): ${pre} dB -> ${du} dB (${r1(du - pre)} dB)`);
+    if (!(du - pre < -6)) fail('duck too weak');
+    rep.fails = fails;
+    rep.ok = fails.length === 0;
+    log(rep.ok ? 'ALL OFFLINE CHECKS PASSED' : fails.length + ' FAILURE(S)');
+    return rep;
+  }
+  return { analyze, kLoud, curve, runChecks, dB };
+})();
+
+// ---------------------------------------------------------------- bench UI
+(function () {
+  const A = G.audio, $ = (id) => document.getElementById(id);
+  const status = () => {
+    const s = A.stats();
+    $('status').textContent = A.ready ? 'running @ ' + A.context.sampleRate + ' Hz' : (A.context ? 'context ' + A.context.state : 'not initialised (click anything)');
+    $('stats').textContent = s ? `voices ${s.voices} (peak ${s.peakVoices}) · tracks [${s.tracks.join(', ')}] · intensity ${s.intensity.toFixed(2)} · errors ${s.errors}` : '';
+  };
+  $('init').onclick = () => { A.init(); setTimeout(status, 100); };
+  const groups = [
+    ['movement', ['jump', 'doublejump', 'land', 'step', 'roll', 'ledge', 'ladder', 'slam', 'dash', 'teleport']],
+    ['melee', ['slash1', 'slash2', 'slash3', 'heavy', 'whip', 'stab']],
+    ['impacts', ['hit', 'hitCrit', 'hitArmor', 'playerHurt', 'lowHp', 'heal', 'shield', 'parry', 'spikes', 'breakable']],
+    ['ranged / skills', ['shoot', 'laser', 'rail', 'shotgun', 'smg', 'bow', 'charge', 'explosion', 'grenade', 'emp', 'shock', 'burn', 'freeze', 'turret', 'drone']],
+    ['enemies', ['enemyAlert', 'telegraph', 'enemyShoot', 'enemyLaser', 'enemyDie', 'eliteDie', 'bossRoar', 'bossPhase', 'bossDie']],
+    ['world', ['pickupCell', 'pickupGold', 'pickupItem', 'scroll', 'door', 'chest', 'shopBuy', 'denied', 'glitch']],
+    ['stingers', ['levelStart', 'transit', 'death', 'victory']],
+    ['ui', ['uiMove', 'uiSelect', 'uiBack', 'uiOpen']],
+  ];
+  const listed = new Set();
+  const sfx = $('sfx');
+  const addBtn = (name) => { const b = document.createElement('button'); b.textContent = name; b.dataset.sfx = name; b.onclick = () => { A.init(); A.play(name); }; sfx.appendChild(b); listed.add(name); };
+  for (const [g, names] of groups) {
+    const h = document.createElement('div'); h.className = 'grp'; h.textContent = g; sfx.appendChild(h);
+    for (const n of names) if (A.names.includes(n)) addBtn(n);
+  }
+  const rest = A.names.filter((n) => !listed.has(n));
+  if (rest.length) { const h = document.createElement('div'); h.className = 'grp'; h.textContent = 'other'; sfx.appendChild(h); rest.forEach(addBtn); }
+  const tr = $('tracks');
+  for (const name of A.tracks.concat([null])) {
+    const b = document.createElement('button');
+    b.textContent = name || 'stop';
+    b.dataset.track = name || '';
+    b.onclick = () => { A.init(); A.music(name); for (const x of tr.children) x.classList.toggle('on', x === b && !!name); };
+    tr.appendChild(b);
+  }
+  const slider = (id, fn) => { const el = $(id); const upd = () => { $(id + 'V').textContent = (+el.value).toFixed(2); fn(+el.value); }; el.oninput = upd; upd(); };
+  slider('vMusic', (v) => A.setVolumes({ music: v }));
+  slider('vSfx', (v) => A.setVolumes({ sfx: v }));
+  slider('vInt', (v) => A.intensity(v));
+  $('duck').onclick = () => A.duck(0.7, 1);
+  $('burst').onclick = () => { A.init(); for (let i = 0; i < 20; i++) A.play('hit'); for (let i = 0; i < 40; i++) A.play(A.names[i % A.names.length]); status(); };
+  $('runChecks').onclick = async () => {
+    $('checkState').textContent = 'rendering…';
+    const lines = [];
+    const rep = await AT.runChecks((l) => { lines.push(l); $('report').textContent = lines.join('\n'); });
+    $('checkState').textContent = rep.ok ? 'PASS' : rep.fails.length + ' failure(s)';
+  };
+  // scope / meter from an analyser tapped on the engine output
+  let an = null, data = null;
+  const cv = $('scope'), g = cv.getContext('2d');
+  function frame() {
+    const eng = A._engine && A._engine();
+    if (eng && !an) { an = eng.ac.createAnalyser(); an.fftSize = 2048; eng.lim.connect(an); data = new Float32Array(an.fftSize); }
+    g.fillStyle = '#05040a'; g.fillRect(0, 0, cv.width, cv.height);
+    if (an) {
+      an.getFloatTimeDomainData(data);
+      let pk = 0, s = 0;
+      g.strokeStyle = '#27f3ff'; g.beginPath();
+      for (let i = 0; i < data.length; i++) {
+        const v = data[i]; pk = Math.max(pk, Math.abs(v)); s += v * v;
+        const x = (i / data.length) * cv.width, y = cv.height / 2 - v * cv.height / 2;
+        if (i) g.lineTo(x, y); else g.moveTo(x, y);
+      }
+      g.stroke();
+      $('meter').textContent = `peak ${AT.dB(pk).toFixed(1)} dB · rms ${AT.dB(Math.sqrt(s / data.length)).toFixed(1)} dB`;
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  setInterval(status, 250);
+})();
+</script>
+</body>
+</html>
