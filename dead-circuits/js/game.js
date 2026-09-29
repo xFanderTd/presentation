@@ -288,7 +288,8 @@
       this.stage = 0;
       const bp = G.params.get('biome'), kp = G.params.get('kind');
       if (bp || kp) {
-        const idx = G.RUN.findIndex((r) => (!bp || r.biome === bp) && (!kp || r.kind === kp));
+        let idx = G.RUN.findIndex((r) => (!bp || r.biome === bp) && (!kp || r.kind === kp));
+        if (idx < 0 && kp) idx = G.RUN.findIndex((r) => r.kind === kp);
         if (idx >= 0) this.stage = idx;
       }
       this.runTime = 0;

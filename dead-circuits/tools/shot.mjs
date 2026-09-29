@@ -26,7 +26,7 @@ await page.goto(url);
 await page.waitForFunction(() => window.G && G.game && G.advance, null, { timeout: 10000 });
 await page.waitForTimeout(300);
 const outDir = path.dirname(path.resolve(out));
-for (const step of script.split(',').map((s) => s.trim()).filter(Boolean)) {
+for (const step of script.split(script.includes('|') ? '|' : ',').map((s) => s.trim()).filter(Boolean)) {
   const [cmd, a, b] = step.split(':');
   if (cmd === 'wait') await page.evaluate((n) => G.advance(n), +a);
   else if (cmd === 'hold') await page.evaluate(([act, n]) => { G.input.setVirtual(act, true); G.advance(n); G.input.setVirtual(act, false); G.advance(1); }, [a, +b]);

@@ -169,6 +169,11 @@
         this.heal(this.healRate * dt);
         if (G.rand.chance(dt * 30)) world.fx.particle({ x: this.x + G.rand.float(0, this.w), y: this.y + G.rand.float(4, this.h), vy: -40, life: 0.5, color: PAL.green, glow: 5, additive: true });
       }
+      // low-HP heartbeat
+      if (this.hp < this.maxHp * 0.25) {
+        this.beatT = (this.beatT || 0) - dt;
+        if (this.beatT <= 0) { this.beatT = 0.9; if (G.audio) G.audio.play('lowHp', { vol: 0.6 }); }
+      } else this.beatT = 0;
       if (I.pressed('jump')) this.jumpBuf = 0.13;
       for (const [slot, btn] of SLOT_BUTTONS) if (I.pressed(btn)) this.buffer = { slot, btn, t: 0.22 };
       if (this.buffer && (this.buffer.t -= dt) <= 0) this.buffer = null;

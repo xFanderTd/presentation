@@ -359,7 +359,9 @@
   // homing orb (virus): steers toward the player for `homeTime` seconds
   class HomingOrb extends G.Projectile {
     update(dt, world) {
-      const p = world.player;
+      let p = world.player;
+      const dc = world.decoy;
+      if (dc && !dc.dead && (!p || p.dead || G.dist(this.x, this.y, dc.cx, dc.cy) < G.dist(this.x, this.y, p.cx, p.cy))) p = dc;
       if (p && !p.dead && this.t < (this.homeTime || 3)) {
         const sp = Math.hypot(this.vx, this.vy) || 1;
         const cur = Math.atan2(this.vy, this.vx), want = Math.atan2(p.cy - this.y, p.cx - this.x);
@@ -403,9 +405,10 @@
         this.dead = true; world.fx.sparks(this.x, this.y - 4, -this.dir, 6, this.color); return;
       }
       const hgt = this.h * this.fade;
-      const p = world.player;
-      if (!this.hit && p && !p.dead && G.overlap({ x: this.x - 4, y: this.y - hgt, w: 8, h: hgt }, p)) {
-        if (p.takeDamage(this.dmg, { dir: this.dir, kb: 130, kbUp: 230, source: this.owner || this })) this.hit = true;
+      const box = { x: this.x - 4, y: this.y - hgt, w: 8, h: hgt };
+      for (const v of [world.player, world.decoy]) {
+        if (this.hit || !v || v.dead || !v.takeDamage || !G.overlap(box, v)) continue;
+        if (v.takeDamage(this.dmg, { dir: this.dir, kb: 130, kbUp: 230, source: this.owner || this })) this.hit = true;
       }
       if (G.rand.chance(dt * 40)) world.fx.particle({ x: this.x + G.rand.float(-3, 3), y: this.y - 1, vx: this.dir * G.rand.float(10, 60), vy: -G.rand.float(40, 140), life: 0.35, color: G.rand.chance(0.5) ? this.color : '#ffffff', grav: 500, additive: true });
     }
@@ -472,10 +475,27 @@
     scaled(base) { return Math.round(base * (1 + 0.35 * this.depth) * (this.elite ? 1.3 : 1)); }
     setState(s) { this.state = s; this.stateT = 0; }
     get player() { return G.world && G.world.player; }
-    distToPlayer() { const p = this.player; return p ? G.dist(this.cx, this.cy, p.cx, p.cy) : 1e9; }
-    dxToPlayer() { const p = this.player; return p ? p.cx - this.cx : 0; }
+    // what the AI chases/aims at: the hologram decoy (world.decoy) when alive and closer than the player
+    get target() {
+      const w = G.world;
+      if (!w) return null;
+      const p = w.player, d = w.decoy;
+      if (d && !d.dead && !d.dying) {
+        if (!p || p.dead || p.state === 'dead' || G.dist(this.cx, this.cy, d.cx, d.cy) < G.dist(this.cx, this.cy, p.cx, p.cy)) return d;
+      }
+      return p;
+    }
+    // every hittable on the player's side overlapping a test: the player and the decoy
+    victims() {
+      const w = G.world, out = [];
+      if (w.player && !w.player.dead) out.push(w.player);
+      if (w.decoy && !w.decoy.dead && !w.decoy.dying && w.decoy.takeDamage) out.push(w.decoy);
+      return out;
+    }
+    distToPlayer() { const p = this.target; return p ? G.dist(this.cx, this.cy, p.cx, p.cy) : 1e9; }
+    dxToPlayer() { const p = this.target; return p ? p.cx - this.cx : 0; }
     canSee(range = this.sight) {
-      const p = this.player;
+      const p = this.target;
       if (!p || p.dead || p.state === 'dead') return false;
       const d = G.dist(this.cx, this.cy, p.cx, p.cy);
       if (d > range) return false;
@@ -515,14 +535,31 @@
     meleeBox(reach, h = this.h, yOff = 0) {
       return { x: this.facing > 0 ? this.x + this.w - 2 : this.x + 2 - reach, y: this.y + yOff, w: reach, h };
     }
+    // swing box from inside the body to `reach` past the front edge (robust when the player is close/overlapping)
+    swingBox(reach, h = this.h, yOff = 0) {
+      const back = this.w / 2 + 2;
+      const w = this.w / 2 + back + reach - 2;
+      return { x: this.facing > 0 ? this.cx - back : this.cx + back - w, y: this.y + yOff, w, h };
+    }
+    // stop a melee lunge before sliding through the player
+    holdGap(gap = 5) {
+      const p = this.target;
+      if (!p) return;
+      const dx = p.cx - this.cx, min = (this.w + p.w) / 2 + gap;
+      if (Math.abs(dx) < min && G.sign(this.vx) === G.sign(dx)) this.vx = 0;
+    }
     // box covering the body plus `reach` in front (for lunges/charges)
     frontBox(reach, yOff = 2, h = this.h - 4) {
       return { x: this.facing > 0 ? this.x : this.x - reach, y: this.y + yOff, w: this.w + reach, h };
     }
     hitPlayer(box, dmg = this.dmg, info = {}) {
-      const p = this.player;
-      if (!p || !G.overlap(box, p)) return 0;
-      return p.takeDamage(dmg, Object.assign({ dir: this.facing, kb: 120, kbUp: 100, source: this }, info));
+      let best = 0;
+      for (const v of this.victims()) {
+        if (!G.overlap(box, v)) continue;
+        const d = v.takeDamage(dmg, Object.assign({ dir: this.facing, kb: 120, kbUp: 100, source: this }, info));
+        if (d > best) best = d;
+      }
+      return best;
     }
     // like hitPlayer but lands at most once per attack (reset swingHit when the attack starts)
     hitOnce(box, dmg = this.dmg, info = {}) {
@@ -533,9 +570,13 @@
     }
     // hitscan segment vs player
     beamHit(x0, y0, x1, y1, pad, dmg, info = {}) {
-      const p = this.player;
-      if (!p || p.dead || !Art.segBox(x0, y0, x1, y1, p, pad)) return 0;
-      return p.takeDamage(dmg, Object.assign({ dir: G.sign(x1 - x0) || this.facing, kb: 120, kbUp: 100, source: this }, info));
+      let best = 0;
+      for (const v of this.victims()) {
+        if (!Art.segBox(x0, y0, x1, y1, v, pad)) continue;
+        const d = v.takeDamage(dmg, Object.assign({ dir: G.sign(x1 - x0) || this.facing, kb: 120, kbUp: 100, source: this }, info));
+        if (d > best) best = d;
+      }
+      return best;
     }
     patrol(dt, speed = this.speed * 0.5) {
       this.patrolT -= dt;
@@ -649,7 +690,6 @@
     onHurt(dmg, info) {
       this.hpBarT = 3;
       if (!this.aggro) this.notice();
-      if (G.audio && this.hp > 0) G.audio.play('hit', { vol: 0.4 });
     }
     die(info) {
       if (this.dying) return;
@@ -937,7 +977,7 @@
     }
     static makeLook(v, elite) { return new Look(huskSpec(v), elite); }
     ai(dt) {
-      const p = this.player;
+      const p = this.target;
       switch (this.state) {
         case 'idle': this.patrol(dt, 14); if (this.aggro) this.setState('chase'); break;
         case 'chase': {
@@ -1040,7 +1080,7 @@
     static makeLook(v, elite) { return new Look(scrapperSpec(), elite); }
     onInterrupt() { this.superArmor = false; }
     ai(dt, world) {
-      const p = this.player;
+      const p = this.target;
       const dx = Math.abs(this.dxToPlayer()), dy = p.bottom - this.bottom;
       switch (this.state) {
         case 'idle': this.patrol(dt, 18); if (this.aggro) this.setState('chase'); break;
@@ -1080,8 +1120,8 @@
           if (this.stateT >= 0.45) { this.setState('swing'); this.swingHit = false; this.vx = this.facing * 90; snd('slash2', { pitch: 0.7 }); }
           break;
         case 'swing':
-          if (this.stateT < 0.14) this.hitOnce(this.meleeBox(20 * this.S, this.h, 0), this.scaled(12), { kb: 170, kbUp: 120 });
-          this.vx = G.approach(this.vx, 0, 600 * dt);
+          if (this.stateT < 0.14) this.hitOnce(this.swingBox(20 * this.S, this.h, 0), this.scaled(12), { kb: 170, kbUp: 120 });
+          this.vx = G.approach(this.vx, 0, 600 * dt); this.holdGap();
           if (this.stateT >= 0.55) { this.cooldown = 0.9; this.setState('chase'); }
           break;
       }
@@ -1202,14 +1242,14 @@
     worldAng(a) { return this.facing > 0 ? a : Math.PI - a; }
     aimBucket(a) { let b = 0, bd = 9; GUN_AIMS.forEach((v, i) => { if (Math.abs(v - a) < bd) { bd = Math.abs(v - a); b = i; } }); return b; }
     trackAim() {
-      const p = this.player;
+      const p = this.target;
       this.facePlayer();
       const [hx, hy] = this.jointAt('aim', 2, 'handF');
       const dx = Math.abs(p.cx - hx), dy = p.y + 10 - hy;
       return G.clamp(Math.atan2(dy, Math.max(4, dx)), -1.05, 1.05);
     }
     ai(dt, world) {
-      const p = this.player;
+      const p = this.target;
       const dx = Math.abs(this.dxToPlayer());
       switch (this.state) {
         case 'idle': this.patrol(dt, 18); if (this.aggro) this.setState('chase'); break;
@@ -1309,7 +1349,7 @@
       this.dead = true;
     }
     ai(dt, world) {
-      const p = this.player;
+      const p = this.target;
       const bob = Math.sin(this.t * 3 + this.id) * 6;
       switch (this.state) {
         case 'idle':
@@ -1340,7 +1380,7 @@
           this.vx = Math.cos(this.diveA) * sp; this.vy = Math.sin(this.diveA) * sp;
           if (G.rand.chance(dt * 50)) world.fx.particle({ x: this.cx, y: this.cy, vx: -this.vx * 0.2, vy: -this.vy * 0.2, life: 0.25, color: G.rand.chance(0.5) ? PAL.orange : PAL.yellow, additive: true });
           const box = { x: this.x - 2, y: this.y - 2, w: this.w + 4, h: this.h + 4 };
-          if ((p && !p.dead && G.overlap(box, p)) || this.hitWall || this.onGround || this.hitCeil || this.stateT > 0.9) this.explode(world);
+          if (this.victims().some((v) => G.overlap(box, v)) || this.hitWall || this.onGround || this.hitCeil || this.stateT > 0.9) this.explode(world);
           break;
         }
       }
@@ -1412,7 +1452,7 @@
           }
         }
       }
-      const p = this.player;
+      const p = this.target;
       switch (this.state) {
         case 'idle': this.patrol(dt, 30); if (this.aggro) this.setState('chase'); break;
         case 'chase': {
@@ -1520,7 +1560,7 @@
       snd('dash', { pitch: 1.2, vol: 0.5 });
     }
     ai(dt, world) {
-      const p = this.player;
+      const p = this.target;
       if (this.dodgeCd > 0) this.dodgeCd -= dt;
       const dx = Math.abs(this.dxToPlayer());
       if (this.wantDodge && this.onGround && this.state !== 'dodge' && !this.ledgeAhead(-G.sign(this.dxToPlayer() || 1))) { this.startDodge(); return; }
@@ -1536,13 +1576,13 @@
           if (this.stateT >= 0.4) { this.setState('s1'); this.swingHit = false; this.vx = this.facing * 150; snd('slash1', { pitch: 1.2 }); }
           break;
         case 's1':
-          if (this.stateT < 0.12) this.hitOnce(this.meleeBox(19 * this.S, 14, 4), this.dmg, { kb: 70 });
-          this.vx = G.approach(this.vx, 0, 900 * dt);
+          if (this.stateT < 0.12) this.hitOnce(this.swingBox(19 * this.S, 14, 4), this.dmg, { kb: 70 });
+          this.vx = G.approach(this.vx, 0, 900 * dt); this.holdGap();
           if (this.stateT >= 0.3) { this.setState('s2'); this.swingHit = false; this.facePlayer(); this.vx = this.facing * 170; snd('slash2', { pitch: 1.3 }); }
           break;
         case 's2':
-          if (this.stateT < 0.12) this.hitOnce(this.meleeBox(20 * this.S, 18, 0), this.dmg, { kb: 150, kbUp: 90 });
-          this.vx = G.approach(this.vx, 0, 900 * dt);
+          if (this.stateT < 0.12) this.hitOnce(this.swingBox(20 * this.S, 18, 0), this.dmg, { kb: 150, kbUp: 90 });
+          this.vx = G.approach(this.vx, 0, 900 * dt); this.holdGap();
           if (this.stateT >= 0.3) {
             this.cooldown = 1.0;
             if (this.dodgeCd <= 0 && G.rand.chance(0.55) && !this.ledgeAhead(-this.facing)) this.startDodge();
@@ -1675,7 +1715,7 @@
       return { amount, info };
     }
     ai(dt, world) {
-      const p = this.player;
+      const p = this.target;
       if (this.shieldFlash > 0) this.shieldFlash -= dt;
       const rdx = this.dxToPlayer(), dx = Math.abs(rdx);
       // slow to turn around: flanking is rewarded
@@ -1722,7 +1762,7 @@
           break;
         case 'bash':
           if (this.stateT < 0.15) this.hitOnce(this.frontBox(10 * this.S, 0, this.h), this.scaled(8), { kb: 280, kbUp: 140 });
-          this.vx = G.approach(this.vx, 0, 700 * dt);
+          this.vx = G.approach(this.vx, 0, 700 * dt); this.holdGap(2);
           if (this.stateT >= 0.55) { this.cooldown = 1.0; this.setState('chase'); }
           break;
       }
@@ -1818,7 +1858,7 @@
       return [hx + Math.cos(wa) * 20 * this.S, hy + Math.sin(wa) * 20 * this.S];
     }
     trackAim() {
-      const p = this.player;
+      const p = this.target;
       this.facePlayer();
       const [hx, hy] = this.jointAt('aim', 2, 'handF');
       return G.clamp(Math.atan2(p.cy - hy, Math.max(6, Math.abs(p.cx - hx))), -1.0, 1.0);
@@ -1829,7 +1869,7 @@
       return [mx, my, h.x, h.y];
     }
     ai(dt, world) {
-      const p = this.player;
+      const p = this.target;
       const dx = Math.abs(this.dxToPlayer());
       if (this.hopCd > 0) this.hopCd -= dt;
       if (this.beamT > 0) this.beamT -= dt;
@@ -1950,7 +1990,7 @@
     }
     static makeLook(v, elite) { return new Look(hackSpec(), elite); }
     ai(dt, world) {
-      const p = this.player;
+      const p = this.target;
       const bob = Math.sin(this.t * 2.2 + this.id) * 5;
       this.orbs = this.orbs.filter((o) => !o.dead);
       switch (this.state) {
@@ -2066,10 +2106,11 @@
     }
     static makeLook(v, elite) { return new Look(secbotSpec(), elite); }
     ai(dt, world) {
-      const p = this.player;
+      const p = this.target;
       const dx = Math.abs(this.dxToPlayer());
       const inRange = dx < 44 * this.S && Math.abs(p.bottom - this.bottom) < 24;
-      const hit = (dmg, info) => this.hitOnce(this.meleeBox(24 * this.S, this.h + 2, -4), dmg, info);
+      const hit = (dmg, info) => this.hitOnce(this.swingBox(24 * this.S, this.h + 2, -4), dmg, info);
+      if (/^h\d$/.test(this.state)) this.holdGap();
       const swing = (st, lunge, sfx) => { this.setState(st); this.swingHit = false; this.facePlayer(); this.vx = this.facing * lunge; snd(sfx, { pitch: 0.8 }); snd('shock', { vol: 0.3 }); };
       switch (this.state) {
         case 'idle': this.patrol(dt, 22); if (this.aggro) this.setState('chase'); break;
@@ -2181,7 +2222,7 @@
     }
     onInterrupt() { this.setState('linger'); }
     trackAim() {
-      const p = this.player;
+      const p = this.target;
       this.facePlayer();
       const px = this.cx, py = this.bottom - 11 * this.S;
       const a = Math.atan2(p.cy - py, Math.max(1, Math.abs(p.cx - px)));
@@ -2307,7 +2348,7 @@
     onInterrupt() { this.untargetable = false; this.dest = null; }
     // feet position behind the player (or in front if blocked), or null
     findSpot() {
-      const p = this.player, L = G.world.level;
+      const p = this.target, L = G.world.level;
       for (const side of [-p.facing, p.facing]) {
         for (const d of [30, 24, 38]) {
           const x = p.cx + side * d, y = p.bottom;
@@ -2320,7 +2361,7 @@
       return null;
     }
     ai(dt, world) {
-      const p = this.player;
+      const p = this.target;
       const dx = Math.abs(this.dxToPlayer());
       if (this.tpCd > 0) this.tpCd -= dt;
       switch (this.state) {
@@ -2356,8 +2397,8 @@
           if (this.stateT >= this.teleMax) { this.setState('slash'); this.swingHit = false; this.vx = this.facing * 170; snd('slash3', { pitch: 1.3 }); }
           break;
         case 'slash':
-          if (this.stateT < 0.13) this.hitOnce(this.meleeBox(24 * this.S, this.h, 0), this.dmg, { kb: 170, kbUp: 100 });
-          this.vx = G.approach(this.vx, 0, 900 * dt);
+          if (this.stateT < 0.13) this.hitOnce(this.swingBox(24 * this.S, this.h, 0), this.dmg, { kb: 170, kbUp: 100 });
+          this.vx = G.approach(this.vx, 0, 900 * dt); this.holdGap();
           if (this.stateT >= 0.25) this.setState('rec');
           break;
         case 'rec':
@@ -2454,7 +2495,7 @@
     eye() { return [this.cx, this.bottom - 13 * this.S]; }
     beamEnd(a) { const [x, y] = this.eye(); const h = G.world.level.raycast(x, y, x + Math.cos(a) * 300, y + Math.sin(a) * 300); return [h.x, h.y]; }
     ai(dt, world) {
-      const p = this.player;
+      const p = this.target;
       const bob = Math.sin(this.t * 2 + this.id) * 4;
       switch (this.state) {
         case 'idle':
@@ -2507,7 +2548,7 @@
       const [a, f] = this.frame();
       this.drawSpr(ctx, cam, a, f);
       // pupil looks toward the player / beam
-      const p = this.player;
+      const p = this.target;
       const [ex, ey] = this.eye();
       const la = this.state === 'sweep' || this.state === 'charge' ? this.ang : (p ? Math.atan2(p.cy - ey, p.cx - ex) : 0);
       const x = Math.round(ex - cam.ox + Math.cos(la) * 2), y = Math.round(ey - cam.oy + Math.sin(la) * 2);
@@ -2541,7 +2582,7 @@
     }
     static makeLook(v, elite) { return new Look(huskSpec(0), elite); }
     ai(dt, world) {
-      const p = this.player;
+      const p = this.target;
       switch (this.state) {
         case 'idle': this.patrol(dt); if (this.aggro) this.setState('chase'); break;
         case 'chase': {
@@ -2556,7 +2597,7 @@
           if (this.stateT >= 0.45) { this.setState('strike'); this.swingHit = false; this.vx = this.facing * 120; snd('slash1', { pitch: 0.7, vol: 0.6 }); }
           break;
         case 'strike':
-          if (this.stateT < 0.12) this.hitOnce(this.meleeBox(20, 16, 3));
+          if (this.stateT < 0.12) this.hitOnce(this.swingBox(20, 16, 3)); this.holdGap();
           this.vx = G.approach(this.vx, 0, 700 * dt);
           if (this.stateT >= 0.45) { this.cooldown = 0.8; this.setState('chase'); }
           break;

@@ -320,7 +320,7 @@
 
     // ------------------------------------------------------------ AI
     ai(dt, world) {
-      const p = this.player;
+      const p = this.target;
       const dx = this.dxToPlayer(), adx = Math.abs(dx);
       const T = this.T;
       Object.assign(T, BASE_POSE, { pods: T.pods, hatch: T.hatch, thrust: T.thrust, charge: T.charge });
@@ -507,7 +507,7 @@
     pickAttack(world, adx) {
       const opts = [];
       const add = (k, w) => opts.push([k, this.last === k ? w * 0.25 : w]);
-      const high = this.player.bottom < this.arena().floorY - 40; // camping on a platform
+      const high = this.target.bottom < this.arena().floorY - 40; // camping on a platform
       if (adx < 70 && !high) add('swipe', 3.2);
       add('slam', high ? 0.6 : adx < 200 ? 3 : 1.2);
       add('laser', high ? 5 : adx > 55 ? 2.8 : 1);
@@ -531,7 +531,7 @@
           this.windDur = [1.05, 0.95, 0.85][this.phase];
           const A = this.arena();
           const [ex, ey] = this.eyeWorld();
-          const p = this.player;
+          const p = this.target;
           this.a0 = Math.atan2(A.floorY - ey, 14);   // floor right at its feet
           this.a1 = -0.06;                          // out to the far wall…
           // …or high enough to sweep a player standing on a platform
@@ -540,10 +540,10 @@
           break;
         }
         case 'missiles': {
-          const p = this.player, A = this.arena(), L = world.level;
+          const p = this.target, A = this.arena(), L = world.level;
           const n = this.phase >= 2 ? 8 : 5;
           const xs = [];
-          const lead = p.cx + p.vx * 0.5;
+          const lead = p.cx + (p.vx || 0) * 0.5;
           for (let i = 0; i < n; i++) {
             let x = i < 3 ? lead + (i - 1) * 34 : G.rand.float(A.x0 + 20, A.x1 - 20);
             x = G.clamp(x + G.rand.float(-6, 6), A.x0 + 10, A.x1 - 10);
