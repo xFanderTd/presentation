@@ -371,9 +371,14 @@
       this.shakeMag = Math.max(this.shakeMag, mag); this.shakeT = Math.max(this.shakeT, time);
     }
     kick(dx, dy) { this.kx += dx; this.ky += dy; }
-    // integer draw offset (world -> screen = world - ox)
-    get ox() { return Math.round(this.x + this.kx + (this.shakeT > 0 ? (Math.random() * 2 - 1) * this.shakeMag : 0)); }
-    get oy() { return Math.round(this.y + this.ky + (this.shakeT > 0 ? (Math.random() * 2 - 1) * this.shakeMag : 0)); }
+    // pick this frame's shake offset once (called at the start of each world draw)
+    beginFrame() {
+      this.sx = this.shakeT > 0 ? (Math.random() * 2 - 1) * this.shakeMag : 0;
+      this.sy = this.shakeT > 0 ? (Math.random() * 2 - 1) * this.shakeMag : 0;
+    }
+    // integer draw offset (world -> screen = world - ox), stable within a frame
+    get ox() { return Math.round(this.x + this.kx + (this.sx || 0)); }
+    get oy() { return Math.round(this.y + this.ky + (this.sy || 0)); }
     visible(x, y, w, h, pad = 32) {
       return x + w > this.x - pad && x < this.x + this.w + pad && y + h > this.y - pad && y < this.y + this.h + pad;
     }

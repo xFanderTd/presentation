@@ -457,6 +457,9 @@
     updateMap(world, p) {
       const m = this.map;
       if (!m) return;
+      // fade the minimap during the boss fight so it doesn't hide the arena's right side
+      const dim = !!(world.boss && !world.boss.dead);
+      if (dim !== this._mapDim) { this._mapDim = dim; this.mapEl.style.opacity = dim ? '0.28' : ''; this.mapEl.style.transition = 'opacity .5s'; }
       let changed = false;
       if (this.frame % 6 === 1 || m.n === 0) changed = scanMapTex(m) > 0;
       if (this.frame % 20 === 1) this.collectMarks(world);

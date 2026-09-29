@@ -1661,6 +1661,7 @@
         const [x, y] = J.head;
         Art.rect(g, x - 3, y - 3, 7, 6, C.armor);
         Art.rect(g, x - 2, y - 4, 5, 1, C.armorL);
+        Art.px(g, x - 2, y - 5, '#ff4050'); Art.px(g, x - 1, y - 5, '#5a8aff');
         Art.rect(g, x, y - 1, 4, 1, C.visor);
         Art.px(g, x + 3, y - 1, '#ffd0d6');
         Art.rect(g, x - 3, y + 2, 7, 1, C.dark);
@@ -1781,6 +1782,10 @@
     drawLight(ctx, cam) {
       super.drawLight(ctx, cam);
       if (this.dying) return;
+      // riot siren on the helmet
+      const [sx, sy] = this.jointAt(...this.frame(), 'head');
+      const blue = Math.floor(this.t * 5) % 2 === 0;
+      G.drawGlow(ctx, sx - this.facing * 2 - cam.ox, sy - 5 - cam.oy, 12, blue ? '#3d6bff' : PAL.red, 0.55);
       if (this.guarding) {
         const [hx, hy] = this.jointAt(...this.frame(), 'handF');
         G.drawGlow(ctx, hx + this.facing * 4 - cam.ox, hy - 3 - cam.oy, this.shieldFlash > 0 ? 40 : 20, PAL.cyan, this.shieldFlash > 0 ? 0.9 : 0.3);

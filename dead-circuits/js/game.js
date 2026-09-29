@@ -172,6 +172,7 @@
 
     draw(ctx) {
       const cam = this.cam;
+      cam.beginFrame();
       G.lights.length = 0;
       ctx.fillStyle = PAL.bg0; ctx.fillRect(0, 0, G.W, G.H);
       this.level.drawBackground(ctx, cam);
